@@ -71,14 +71,6 @@ const char *catalog::lookup(const char *text, int category)
 
 const char *catalog::plural_lookup(const char *text, const char *plural, unsigned long n, int category)
 {
-    plural_forms *pf = m_plural.get();
-    uint64_t plural_index = n != 1;
-    if (pf)
-    {
-        if (!pf->m_expr_plural.eval(n, &plural_index) || plural_index >= pf->m_num_plurals)
-            return nullptr;
-    }
-
     //XXX form the msgid by concatenating
     char *msgid;
     size_t msgid_len;
@@ -109,6 +101,17 @@ const char *catalog::plural_lookup(const char *text, const char *plural, unsigne
         return nullptr;
 
     catalog_entry &ent = it->second;
+
+    plural_forms &pf = m_plural[ent.m_merge_index];
+    uint64_t plural_index = n != 1;
+    if (pf.m_expr_plural)
+    {
+        if (!pf.m_expr_plural.eval(n, &plural_index))
+            return nullptr;
+        if (plural_index >= pf.m_num_plurals)
+            return nullptr;
+    }
+
     const char *translated = ent.get_plural(plural_index);
     if (!translated || !translated[0])
         return nullptr;
@@ -373,6 +376,16 @@ bool catalog::load_file_strings(const std::string &path, int category)
     }
 
     //---------------------------------------------------------------------------
+    uint32_t merge_index = m_merge_index++;
+
+    {
+        std::unique_ptr<plural_forms[]> p(new plural_forms[merge_index + 1]);
+        for (uint32_t i = 0; i < merge_index; ++i)
+            p[i] = std::move(m_plural[i]);
+        m_plural = std::move(p);
+    }
+
+    //---------------------------------------------------------------------------
     std::string_view null_entry;
 
     for (uint32_t i = 0; i < num_strings; ++i)
@@ -407,13 +420,15 @@ bool catalog::load_file_strings(const std::string &path, int category)
             ent.m_extra_plurals = count;
         }
 
+        ent.m_merge_index = merge_index;
+
         catalog_key key;
         key.m_category = category;
         key.m_message = std::string_view(ent.m_source, len_source);
         m_strings.insert(std::make_pair(key, std::move(ent)));
     }
 
-    string_visit_splits(null_entry, '\n', [this](std::string_view line)
+    string_visit_splits(null_entry, '\n', [this, merge_index](std::string_view line)
     {
         size_t colon_pos = line.find(':');
         if (colon_pos != line.npos)
@@ -441,12 +456,12 @@ bool catalog::load_file_strings(const std::string &path, int category)
                     return true;
                 });
 
-                std::unique_ptr<plural_forms> pf(new plural_forms);
-                pf->m_expr_plural = plural_expr(plural);
-                if (pf->m_expr_plural.valid() &&
-                    parse_uint(nplurals, pf->m_num_plurals) && pf->m_num_plurals > 0)
+                plural_forms pf;
+                pf.m_expr_plural = plural_expr(plural);
+                if (pf.m_expr_plural.valid() &&
+                    parse_uint(nplurals, pf.m_num_plurals) && pf.m_num_plurals > 0)
                 {
-                    m_plural = std::move(pf);
+                    m_plural[merge_index] = std::move(pf);
                 }
                 else
                 {

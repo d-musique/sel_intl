@@ -24,6 +24,7 @@ struct catalog_entry
     char *m_source = nullptr;
     char *m_translated = nullptr;
     uint32_t m_extra_plurals = 0;
+    uint32_t m_merge_index = 0;
     char *get_plural(uint64_t nth) const noexcept;
 };
 
@@ -45,8 +46,8 @@ struct catalog_key_equal
 
 struct plural_forms
 {
-    unsigned int m_num_plurals{};
     plural_expr m_expr_plural;
+    unsigned int m_num_plurals{};
 };
 
 struct catalog
@@ -55,8 +56,9 @@ struct catalog
     std::string m_dir;
     volatile uint32_t m_loaded = 0;
     std::unique_ptr<char[]> m_blob;
-    std::unique_ptr<plural_forms> m_plural;
+    std::unique_ptr<plural_forms[]> m_plural;
     std::unordered_map<catalog_key, catalog_entry, catalog_key_hash, catalog_key_equal> m_strings;
+    uint32_t m_merge_index = 0;
     const char *lookup(const char *text, int category);
     const char *plural_lookup(const char *text, const char *plural, unsigned long n, int category);
     bool load(int category, std::string_view lang, std::shared_lock<std::shared_mutex> &shared_lock);
